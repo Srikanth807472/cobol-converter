@@ -26,6 +26,21 @@ body {
     100% { background-position: 0% 50%; }
 }
 
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+}
+
 .container {
     max-width: 1400px;
     margin: 0 auto;
@@ -38,6 +53,7 @@ header {
     text-align: center;
     margin-bottom: 30px;
     color: white;
+    animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .header-badge {
@@ -53,6 +69,13 @@ header {
     font-size: 1.5rem;
     border: 1px solid rgba(255, 255, 255, 0.25);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    animation: float 4s ease-in-out infinite;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s;
+}
+
+.header-badge:hover {
+    transform: translateY(-4px) scale(1.05);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
 }
 
 header h1 {
@@ -88,6 +111,12 @@ header p {
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.08);
     margin-bottom: 30px;
     border: 1px solid rgba(255, 255, 255, 0.6);
+    animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+    transition: box-shadow 0.4s ease;
+}
+
+.converter-layout:hover {
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .section-header {
@@ -121,13 +150,20 @@ header p {
     background: #f8fafc;
     word-wrap: break-word;
     overflow-wrap: break-word;
-    transition: border-color 0.3s, box-shadow 0.3s;
+    transition: border-color 0.35s cubic-bezier(0.4, 0, 0.2, 1), 
+                box-shadow 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+                background-color 0.35s ease;
 }
 
 #cobolInput:focus {
     outline: none;
     border-color: #667eea;
-    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15), 0 4px 12px rgba(102, 126, 234, 0.1);
+    background: #fff;
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.12), 0 8px 25px rgba(102, 126, 234, 0.08);
+}
+
+#cobolInput:hover:not(:focus) {
+    border-color: #cbd5e1;
 }
 
 #output {
@@ -168,7 +204,7 @@ header p {
     border-radius: 10px;
     font-size: 14px;
     background: white;
-    transition: border-color 0.3s, box-shadow 0.3s;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: pointer;
 }
 
@@ -176,6 +212,10 @@ header p {
     outline: none;
     border-color: #667eea;
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
+}
+
+#targetLang:hover:not(:focus) {
+    border-color: #cbd5e1;
 }
 
 .options {
@@ -202,7 +242,7 @@ header p {
     display: flex;
     align-items: center;
     gap: 8px;
-    transition: all 0.25s ease;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     width: 100%;
     justify-content: center;
     position: relative;
@@ -213,13 +253,25 @@ header p {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 50%);
+    background: linear-gradient(135deg, rgba(255,255,255,0.25) 0%, transparent 50%);
     opacity: 0;
-    transition: opacity 0.25s;
+    transition: opacity 0.4s ease;
 }
 
 .btn:hover::after {
     opacity: 1;
+}
+
+.btn:active {
+    transition-duration: 0.1s;
+}
+
+.btn i {
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.btn:hover i {
+    transform: scale(1.15);
 }
 
 .btn-primary {
@@ -229,12 +281,12 @@ header p {
 }
 
 .btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
 }
 
 .btn-primary:active {
-    transform: translateY(0);
+    transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
@@ -245,28 +297,43 @@ header p {
 }
 
 .btn-secondary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(108, 117, 125, 0.35);
+    transform: translateY(-3px);
+    box-shadow: 0 6px 18px rgba(108, 117, 125, 0.35);
+}
+
+.btn-secondary:active {
+    transform: translateY(-1px);
 }
 
 .btn-success {
     background: linear-gradient(135deg, #10b981 0%, #059669 100%);
     color: white;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
 }
 
 .btn-success:hover {
-    background: linear-gradient(135deg, #059669 0%, #047857 100%);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(16, 185, 129, 0.45);
+}
+
+.btn-success:active {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
 }
 
 .btn-danger {
-    background: #ef4444;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
     color: white;
+    box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
 }
 
 .btn-danger:hover {
-    background: #dc2626;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(239, 68, 68, 0.45);
+}
+
+.btn-danger:active {
+    transform: translateY(-1px);
 }
 
 .output-actions {
@@ -287,6 +354,7 @@ header p {
     padding: 30px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.6);
+    animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.4s both;
 }
 
 .examples-section h3 {
@@ -309,7 +377,7 @@ header p {
     border-radius: 14px;
     padding: 20px;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
     position: relative;
     overflow: hidden;
 }
@@ -322,19 +390,25 @@ header p {
     right: 0;
     height: 3px;
     background: linear-gradient(90deg, #667eea, #764ba2);
-    opacity: 0;
-    transition: opacity 0.3s;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .example-card:hover {
     background: white;
-    transform: translateY(-4px);
-    box-shadow: 0 12px 30px rgba(102, 126, 234, 0.15);
+    transform: translateY(-6px) scale(1.02);
+    box-shadow: 0 16px 40px rgba(102, 126, 234, 0.18);
     border-color: rgba(102, 126, 234, 0.3);
 }
 
 .example-card:hover::before {
-    opacity: 1;
+    transform: scaleX(1);
+}
+
+.example-card:active {
+    transform: translateY(-2px) scale(1);
+    transition-duration: 0.15s;
 }
 
 .card-icon {
@@ -348,6 +422,13 @@ header p {
     margin-bottom: 12px;
     color: #667eea;
     font-size: 1rem;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                background 0.3s ease;
+}
+
+.example-card:hover .card-icon {
+    transform: scale(1.1) rotate(-5deg);
+    background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
 }
 
 .example-card h4 {
@@ -375,12 +456,12 @@ header p {
     box-shadow: 0 10px 40px rgba(40, 167, 69, 0.3);
     z-index: 1000;
     backdrop-filter: blur(10px);
-    animation: slideIn 0.3s ease;
+    animation: slideIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 @keyframes slideIn {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
+    from { transform: translateX(120%) scale(0.9); opacity: 0; }
+    to { transform: translateX(0) scale(1); opacity: 1; }
 }
 
 .notification.error {
@@ -412,6 +493,12 @@ header p {
     justify-content: center;
     align-items: center;
     z-index: 2000;
+    animation: fadeOverlay 0.3s ease;
+}
+
+@keyframes fadeOverlay {
+    from { opacity: 0; backdrop-filter: blur(0); }
+    to { opacity: 1; backdrop-filter: blur(8px); }
 }
 
 .loading-content {
@@ -422,6 +509,7 @@ header p {
     text-align: center;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.5);
+    animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .loading-content i {
@@ -689,6 +777,12 @@ header p {
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
     margin: 2rem 0;
     border: 1px solid rgba(255, 255, 255, 0.6);
+    animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both;
+    transition: box-shadow 0.4s ease;
+}
+
+.testing-section:hover {
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .testing-controls {
@@ -711,12 +805,13 @@ header p {
     border: 2px solid #e2e8f0;
     border-radius: 16px;
     overflow: hidden;
-    transition: box-shadow 0.3s, border-color 0.3s;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .test-output:hover {
-    box-shadow: 0 8px 25px rgba(79, 70, 229, 0.1);
-    border-color: rgba(79, 70, 229, 0.2);
+    box-shadow: 0 12px 35px rgba(79, 70, 229, 0.12);
+    border-color: rgba(79, 70, 229, 0.25);
+    transform: translateY(-2px);
 }
 
 .test-output-header {
@@ -748,7 +843,7 @@ header p {
     color: white;
     font-size: 0.75rem;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     display: flex;
     align-items: center;
     gap: 4px;
@@ -757,7 +852,7 @@ header p {
 
 .btn-small:hover {
     background: rgba(255,255,255,0.3);
-    transform: translateY(-1px);
+    transform: translateY(-2px) scale(1.05);
 }
 
 .btn-open {
@@ -773,7 +868,7 @@ header p {
     gap: 0.75rem;
     font-weight: 600;
     font-size: 1rem;
-    animation: fadeIn 0.3s ease;
+    animation: fadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .comparison-bar.match {
@@ -828,12 +923,13 @@ header p {
     padding: 0.25rem 0.75rem;
     border-radius: 20px;
     background: rgba(255,255,255,0.2);
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .status.running {
     background: #fbbf24;
     color: #92400e;
-    animation: pulse 2s infinite;
+    animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .status.success {
@@ -871,8 +967,8 @@ header p {
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.05); }
 }
 
 /* Responsive Design for Testing */
