@@ -163,6 +163,54 @@ UNSTRING WS-DATA DELIMITED BY ","
 END-UNSTRING
 DISPLAY "Part 1: " WS-PART1
 DISPLAY "Part 2: " WS-PART2
+STOP RUN.`,
+
+            condition88: `IDENTIFICATION DIVISION.
+PROGRAM-ID. CONDITION-88-EXAMPLE.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-CHAR PIC X VALUE "e".
+   88 IS-VOWEL VALUE "a", "e", "i", "o", "u".
+   88 IS-DIGIT VALUE "0" THRU "9".
+   88 IS-LOWER VALUE "a" THRU "z".
+01 WS-GRADE PIC X VALUE "B".
+   88 EXCELLENT VALUE "A".
+   88 GOOD VALUE "B".
+   88 AVERAGE VALUE "C".
+   88 FAILING VALUE "D", "F".
+PROCEDURE DIVISION.
+DISPLAY "=== 88-Level Condition Demo ==="
+DISPLAY "Testing character: " WS-CHAR
+EVALUATE TRUE
+    WHEN IS-VOWEL
+        DISPLAY WS-CHAR " is a vowel"
+    WHEN IS-DIGIT
+        DISPLAY WS-CHAR " is a digit"
+    WHEN IS-LOWER
+        DISPLAY WS-CHAR " is a consonant"
+    WHEN OTHER
+        DISPLAY WS-CHAR " is other"
+END-EVALUATE
+DISPLAY "Testing grade: " WS-GRADE
+EVALUATE TRUE
+    WHEN EXCELLENT
+        DISPLAY "Result: Excellent!"
+    WHEN GOOD
+        DISPLAY "Result: Good job!"
+    WHEN AVERAGE
+        DISPLAY "Result: Average"
+    WHEN FAILING
+        DISPLAY "Result: Failing"
+    WHEN OTHER
+        DISPLAY "Result: Unknown"
+END-EVALUATE
+MOVE "7" TO WS-CHAR
+DISPLAY "Testing character: " WS-CHAR
+IF IS-DIGIT
+    DISPLAY WS-CHAR " is a digit"
+ELSE
+    DISPLAY WS-CHAR " is not a digit"
+END-IF
 STOP RUN.`
         };
         
@@ -225,30 +273,70 @@ STOP RUN.`
     /** Parse DATA DIVISION variables */
     parseVariables(code) {
         const vars = [];
-        const re = /(?:01|05|10|15|77|88)\s+([A-Z0-9\-_]+)\s+PIC\s+([^\s.]+)(?:\s+VALUE\s+["']?([^"'\s.]+)["']?)?/gi;
-        let m;
-        while ((m = re.exec(code)) !== null) {
-            const pic = m[2].toUpperCase();
-            const isStr = pic.includes('X') || pic.includes('A');
-            let rawVal = m[3] != null ? m[3] : null;
-            // Resolve COBOL figurative constants
-            if (rawVal != null) {
-                const upper = rawVal.toUpperCase();
-                if (upper === 'ZEROS' || upper === 'ZERO' || upper === 'ZEROES') rawVal = isStr ? '0' : '0';
-                else if (upper === 'SPACES' || upper === 'SPACE') rawVal = '';
+        // Get DATA DIVISION lines
+        const lines = code.split('\n');
+        let inData = false, lastParentName = null;
+        for (let li = 0; li < lines.length; li++) {
+            const line = lines[li].trim();
+            const upper = line.toUpperCase();
+            if (upper.includes('DATA DIVISION')) { inData = true; continue; }
+            if (upper.includes('PROCEDURE DIVISION')) break;
+            if (!inData) continue;
+
+            // Regular variable: 01/05/10/15/77 NAME PIC ...
+            const varMatch = line.match(/^(?:01|05|10|15|77)\s+([A-Z0-9\-_]+)\s+PIC\s+([^\s.]+)(?:\s+VALUE\s+(.+?))?\.?\s*$/i);
+            if (varMatch) {
+                const pic = varMatch[2].toUpperCase();
+                const isStr = pic.includes('X') || pic.includes('A');
+                let rawVal = varMatch[3] != null ? varMatch[3].replace(/\.\s*$/, '').trim().replace(/^["']|["']$/g, '') : null;
+                if (rawVal != null) {
+                    const rv = rawVal.toUpperCase();
+                    if (rv === 'ZEROS' || rv === 'ZERO' || rv === 'ZEROES') rawVal = isStr ? '0' : '0';
+                    else if (rv === 'SPACES' || rv === 'SPACE') rawVal = '';
+                }
+                const name = varMatch[1].toUpperCase();
+                vars.push({
+                    name, pic, 
+                    value: rawVal != null ? (isStr ? String(rawVal) : (isNaN(rawVal) ? 0 : Number(rawVal))) : (isStr ? '' : 0),
+                    type: isStr ? 'string' : 'number'
+                });
+                lastParentName = name;
+                continue;
             }
-            vars.push({
-                name: m[1].toUpperCase(),
-                pic: pic,
-                value: rawVal != null ? (isStr ? String(rawVal) : (isNaN(rawVal) ? 0 : Number(rawVal))) : (isStr ? '' : 0),
-                type: isStr ? 'string' : 'number'
-            });
-        }
-        // Also parse 88-level condition names
-        const re88 = /88\s+([A-Z0-9\-_]+)\s+VALUE\s+["']?([^"'\s.]+)["']?/gi;
-        while ((m = re88.exec(code)) !== null) {
-            if (!vars.find(v => v.name === m[1].toUpperCase())) {
-                vars.push({ name: m[1].toUpperCase(), pic: '', value: m[2], type: '88-level', parent: null });
+
+            // 88-level condition: may span multiple lines with VALUE "a", "e", "i" THRU "z"
+            const m88 = line.match(/^88\s+([A-Z0-9\-_]+)\s+VALUE[S]?\s+(.+)/i);
+            if (m88) {
+                const name88 = m88[1].toUpperCase();
+                // Collect full value spec (may continue on next lines)
+                let valSpec = m88[2].replace(/\.\s*$/, '').trim();
+                while (li + 1 < lines.length) {
+                    const nextLine = lines[li + 1].trim();
+                    if (nextLine.match(/^(01|05|10|15|77|88|\d{2})\s+/i) || nextLine.toUpperCase().includes('PROCEDURE DIVISION')) break;
+                    li++;
+                    valSpec += ' ' + nextLine.replace(/\.\s*$/, '').trim();
+                }
+                // Parse values and ranges from valSpec
+                const values = [];
+                const ranges = [];
+                // Match individual quoted values and THRU ranges
+                const tokens = valSpec.match(/"[^"]*"|'[^']*'|[A-Z0-9]+/gi) || [];
+                for (let ti = 0; ti < tokens.length; ti++) {
+                    const tok = tokens[ti].replace(/^["']|["']$/g, '');
+                    if (tok.toUpperCase() === 'THRU' || tok.toUpperCase() === 'THROUGH') {
+                        // Previous token THRU next token
+                        if (values.length > 0 && ti + 1 < tokens.length) {
+                            const from = values.pop();
+                            const to = tokens[ti + 1].replace(/^["']|["']$/g, '');
+                            ranges.push({ from, to });
+                            ti++;
+                        }
+                    } else if (tok !== ',' && tok !== '') {
+                        values.push(tok);
+                    }
+                }
+                vars.push({ name: name88, pic: '', values, ranges, type: '88-level', parent: lastParentName });
+                continue;
             }
         }
         return vars;
@@ -376,6 +464,18 @@ STOP RUN.`
                 i = body.nextIndex;
                 if (i < lines.length && lines[i].toUpperCase().startsWith('END-PERFORM')) i++;
                 stmts.push({ type: 'PERFORM_TIMES', times: Number(perfT[1]), body: body.stmts });
+                continue;
+            }
+
+            // Inline PERFORM UNTIL condition ... END-PERFORM (no paragraph name)
+            const perfUntilInline = upper.match(/^PERFORM\s+UNTIL\s+(.+)/i);
+            if (perfUntilInline) {
+                const cond = perfUntilInline[1].trim().toUpperCase();
+                i++;
+                const body = this._parseBlock(lines, i);
+                i = body.nextIndex;
+                if (i < lines.length && lines[i].toUpperCase().startsWith('END-PERFORM')) i++;
+                stmts.push({ type: 'PERFORM_UNTIL_INLINE', condition: cond, body: body.stmts });
                 continue;
             }
 
@@ -598,6 +698,36 @@ STOP RUN.`
         for (const body of Object.values(paragraphs || {})) { if (check(body)) return true; }
         return false;
     }
+    /** Generate an 88-level condition expression for a given language */
+    _gen88Condition(cond88, lang) {
+        const parentVar = this.cv(cond88.parent);
+        const parts = [];
+        // Individual values
+        for (const val of cond88.values) {
+            if (lang === 'python') parts.push(`${parentVar} == "${val}"`);
+            else if (lang === 'go') parts.push(`${parentVar} == "${val}"`);
+            else if (lang === 'rust') parts.push(`${parentVar} == "${val}"`);
+            else parts.push(`${parentVar} == "${val}"`);  // java, csharp, javascript
+        }
+        // THRU ranges
+        for (const r of cond88.ranges) {
+            if (lang === 'python') parts.push(`"${r.from}" <= ${parentVar} <= "${r.to}"`);
+            else if (lang === 'go') parts.push(`(${parentVar} >= "${r.from}" && ${parentVar} <= "${r.to}")`);
+            else if (lang === 'rust') parts.push(`(${parentVar} >= "${r.from}" && ${parentVar} <= "${r.to}")`);
+            else parts.push(`(${parentVar} >= "${r.from}" && ${parentVar} <= "${r.to}")`);
+        }
+        if (parts.length === 0) return 'false';
+        if (lang === 'python') return parts.join(' or ');
+        return parts.join(' || ');
+    }
+    /** Check if a condition token is an 88-level name and return its expression, or null */
+    _resolve88(token, lang) {
+        if (!this._currentVars) return null;
+        const upper = token.toUpperCase();
+        const cond88 = this._currentVars.find(v => v.type === '88-level' && v.name === upper);
+        if (cond88) return this._gen88Condition(cond88, lang);
+        return null;
+    }
     convertExpr(expr, lang) {
         let e = expr.replace(/[A-Z][A-Z0-9\-_]*/gi, m => isNaN(m) ? this.cv(m) : m);
         // Use integer division for languages that need it
@@ -609,19 +739,37 @@ STOP RUN.`
     }
     _splitList(s) { return s.split(/[,\s]+/).filter(x => x); }
     _mapSources(s) { return this._splitList(s).map(x => isNaN(x) ? this.cv(x) : x); }
-    _cVal(src) {
+    _cVal(src, lang) {
         const s = src.replace(/^["']|["']$/g, '');
         if (src.startsWith('"') || src.startsWith("'")) return `"${s}"`;
+        // FUNCTION LOWER-CASE / UPPER-CASE
+        const funcM = s.match(/^FUNCTION\s+(LOWER-CASE|UPPER-CASE)\s*\(\s*([^)]+)\s*\)/i);
+        if (funcM) {
+            const fn = funcM[1].toUpperCase();
+            const arg = this.cv(funcM[2].trim());
+            if (lang === 'java') return fn === 'LOWER-CASE' ? `${arg}.toLowerCase()` : `${arg}.toUpperCase()`;
+            if (lang === 'csharp') return fn === 'LOWER-CASE' ? `${arg}.ToLower()` : `${arg}.ToUpper()`;
+            if (lang === 'go') return fn === 'LOWER-CASE' ? `strings.ToLower(${arg})` : `strings.ToUpper(${arg})`;
+            return fn === 'LOWER-CASE' ? `${arg}.toLowerCase()` : `${arg}.toUpperCase()`;
+        }
         if (!isNaN(s)) return s;
         return this.cv(s);
     }
-    _cCondition(cond) {
-        let c = cond.replace(/"[^"]*"|'[^']*'|[A-Z][A-Z0-9\-_]*/gi, m => {
+    _cCondition(cond, lang) {
+        let c = cond.trim();
+        // Handle NOT prefix
+        let negated = false;
+        if (c.match(/^NOT\s+/i)) { negated = true; c = c.replace(/^NOT\s+/i, '').trim(); }
+        // Check if it's a single 88-level condition name
+        const r88 = this._resolve88(c, lang || 'javascript');
+        if (r88) return negated ? `!(${r88})` : `(${r88})`;
+        // Normal condition conversion
+        let result = c.replace(/"[^"]*"|'[^']*'|[A-Z][A-Z0-9\-_]*/gi, m => {
             if (m.startsWith('"') || m.startsWith("'")) return m;
             return isNaN(m) ? this.cv(m) : m;
         });
-        c = c.replace(/(?<![<>!])=(?!=)/g, ' == ');
-        return c.replace(/\s+/g, ' ').trim();
+        result = result.replace(/(?<![<>!])=(?!=)/g, ' == ');
+        return (negated ? `!(${result})` : result).replace(/\s+/g, ' ').trim();
     }
 
     // =====================================================================
@@ -733,6 +881,7 @@ STOP RUN.`
         const vars = this.parseVariables(code);
         const stmts = this.parseStatements(code);
         this._knownVars = new Set(vars.map(v => v.name.toUpperCase()));
+        this._currentVars = vars;
         const paragraphs = stmts._paragraphs || {};
         let r = '';
         if (cmt) r += '# Converted from COBOL to Python\n# Generated by COBOL Converter\n\n';
@@ -829,6 +978,12 @@ STOP RUN.`
                     r += `${ind}    ${this.cv(s.paragraph)}()\n`;
                     break;
                 }
+                case 'PERFORM_UNTIL_INLINE': {
+                    r += `${ind}while not (${this._pyCondition(s.condition)}):\n`;
+                    r += this._pyBlock(s.body, ind + '    ', false);
+                    if (s.body.length === 0) r += `${ind}    pass\n`;
+                    break;
+                }
                 case 'GO_TO': {
                     r += `${ind}# GO TO ${s.paragraph} (converted to function call)\n`;
                     r += `${ind}${this.cv(s.paragraph)}()\n`;
@@ -887,15 +1042,31 @@ STOP RUN.`
     _pyVal(src) {
         const s = src.replace(/^["']|["']$/g, '');
         if (src.startsWith('"') || src.startsWith("'")) return `"${s}"`;
+        // FUNCTION LOWER-CASE / UPPER-CASE
+        const funcM = s.match(/^FUNCTION\s+(LOWER-CASE|UPPER-CASE)\s*\(\s*([^)]+)\s*\)/i);
+        if (funcM) {
+            const fn = funcM[1].toUpperCase();
+            const arg = this.cv(funcM[2].trim());
+            return fn === 'LOWER-CASE' ? `${arg}.lower()` : `${arg}.upper()`;
+        }
         if (!isNaN(s)) return s;
         return this.cv(s);
     }
 
     _pyCondition(cond) {
-        return cond.replace(/"[^"]*"|'[^']*'|[A-Z][A-Z0-9\-_]*/gi, m => {
+        let c = cond.trim();
+        // Handle NOT prefix
+        let negated = false;
+        if (c.match(/^NOT\s+/i)) { negated = true; c = c.replace(/^NOT\s+/i, '').trim(); }
+        // Check if it's a single 88-level condition name
+        const r88 = this._resolve88(c, 'python');
+        if (r88) return negated ? `not (${r88})` : `(${r88})`;
+        // Normal condition conversion
+        let result = c.replace(/"[^"]*"|'[^']*'|[A-Z][A-Z0-9\-_]*/gi, m => {
             if (m.startsWith('"') || m.startsWith("'")) return m;
             return isNaN(m) ? this.cv(m) : m;
         }).replace(/(?<![<>!])=(?!=)/g, ' == ').replace(/\s+/g, ' ').trim();
+        return negated ? `not (${result})` : result;
     }
 
     // =====================================================================
@@ -905,6 +1076,7 @@ STOP RUN.`
         const vars = this.parseVariables(code);
         const stmts = this.parseStatements(code);
         this._knownVars = new Set(vars.map(v => v.name.toUpperCase()));
+        this._currentVars = vars;
         const paragraphs = stmts._paragraphs || {};
         let r = '';
         if (cmt) r += '// Converted from COBOL to Java\n// Generated by COBOL Converter\n\n';
@@ -949,6 +1121,7 @@ STOP RUN.`
         const vars = this.parseVariables(code);
         const stmts = this.parseStatements(code);
         this._knownVars = new Set(vars.map(v => v.name.toUpperCase()));
+        this._currentVars = vars;
         const paragraphs = stmts._paragraphs || {};
         let r = '';
         if (cmt) r += '// Converted from COBOL to C#\n// Generated by COBOL Converter\n\n';
@@ -993,6 +1166,7 @@ STOP RUN.`
         const vars = this.parseVariables(code);
         const stmts = this.parseStatements(code);
         this._knownVars = new Set(vars.map(v => v.name.toUpperCase()));
+        this._currentVars = vars;
         const paragraphs = stmts._paragraphs || {};
         let r = '';
         if (cmt) r += '// Converted from COBOL to JavaScript\n// Generated by COBOL Converter\n\n';
@@ -1026,6 +1200,7 @@ STOP RUN.`
         const vars = this.parseVariables(code);
         const stmts = this.parseStatements(code);
         this._knownVars = new Set(vars.map(v => v.name.toUpperCase()));
+        this._currentVars = vars;
         const paragraphs = stmts._paragraphs || {};
         const needsStrings = this._usesStringOps(stmts, paragraphs);
         let r = '';
@@ -1084,6 +1259,7 @@ STOP RUN.`
         const vars = this.parseVariables(code);
         const stmts = this.parseStatements(code);
         this._knownVars = new Set(vars.map(v => v.name.toUpperCase()));
+        this._currentVars = vars;
         const paragraphs = stmts._paragraphs || {};
         let r = '';
         if (cmt) r += '// Converted from COBOL to Rust\n// Generated by COBOL Converter\n\n';
@@ -1136,7 +1312,7 @@ STOP RUN.`
                     break;
                 }
                 case 'MOVE':
-                    r += `${ind}${this.cv(s.target)} = ${lang === 'rust' ? this._rustVal(s.source) : this._cVal(s.source)}${sc}\n`;
+                    r += `${ind}${this.cv(s.target)} = ${lang === 'rust' ? this._rustVal(s.source) : this._cVal(s.source, lang)}${sc}\n`;
                     break;
                 case 'COMPUTE':
                     r += `${ind}${this.cv(s.variable)} = ${this.convertExpr(s.expression, lang)}${sc}\n`;
@@ -1182,9 +1358,9 @@ STOP RUN.`
                 }
                 case 'IF': {
                     if (lang === 'go' || lang === 'rust') {
-                        r += `${ind}if ${this._cCondition(s.condition)} {\n`;
+                        r += `${ind}if ${this._cCondition(s.condition, lang)} {\n`;
                     } else {
-                        r += `${ind}if (${this._cCondition(s.condition)}) {\n`;
+                        r += `${ind}if (${this._cCondition(s.condition, lang)}) {\n`;
                     }
                     r += this._cBlock(s.ifBody, ind + '    ', lang);
                     r += `${ind}}\n`;
@@ -1205,11 +1381,21 @@ STOP RUN.`
                 }
                 case 'PERFORM_UNTIL': {
                     if (lang === 'go' || lang === 'rust') {
-                        r += `${ind}for !(${this._cCondition(s.condition)}) {\n`;
+                        r += `${ind}for !(${this._cCondition(s.condition, lang)}) {\n`;
                     } else {
-                        r += `${ind}while (!(${this._cCondition(s.condition)})) {\n`;
+                        r += `${ind}while (!(${this._cCondition(s.condition, lang)})) {\n`;
                     }
                     r += `${ind}    ${this.cv(s.paragraph)}()${sc}\n`;
+                    r += `${ind}}\n`;
+                    break;
+                }
+                case 'PERFORM_UNTIL_INLINE': {
+                    if (lang === 'go' || lang === 'rust') {
+                        r += `${ind}for !(${this._cCondition(s.condition, lang)}) {\n`;
+                    } else {
+                        r += `${ind}while (!(${this._cCondition(s.condition, lang)})) {\n`;
+                    }
+                    r += this._cBlock(s.body, ind + '    ', lang);
                     r += `${ind}}\n`;
                     break;
                 }
@@ -1303,12 +1489,12 @@ STOP RUN.`
                 }
             } else if (subj === 'TRUE') {
                 if (lang === 'go' || lang === 'rust') {
-                    r += `${ind}${first ? 'if' : '} else if'} ${this._cCondition(c.condition)} {\n`;
+                    r += `${ind}${first ? 'if' : '} else if'} ${this._cCondition(c.condition, lang)} {\n`;
                 } else {
-                    r += `${ind}${first ? 'if' : 'else if'} (${this._cCondition(c.condition)}) {\n`;
+                    r += `${ind}${first ? 'if' : 'else if'} (${this._cCondition(c.condition, lang)}) {\n`;
                 }
             } else {
-                const val = this._cVal(c.condition);
+                const val = this._cVal(c.condition, lang);
                 if (lang === 'go' || lang === 'rust') {
                     r += `${ind}${first ? 'if' : '} else if'} ${this.cv(subj)} == ${val} {\n`;
                 } else {
@@ -1372,6 +1558,13 @@ STOP RUN.`
     _rustVal(src) {
         const s = src.replace(/^["']|["']$/g, '');
         if (src.startsWith('"') || src.startsWith("'")) return `String::from("${s}")`;
+        // FUNCTION LOWER-CASE / UPPER-CASE
+        const funcM = s.match(/^FUNCTION\s+(LOWER-CASE|UPPER-CASE)\s*\(\s*([^)]+)\s*\)/i);
+        if (funcM) {
+            const fn = funcM[1].toUpperCase();
+            const arg = this.cv(funcM[2].trim());
+            return fn === 'LOWER-CASE' ? `${arg}.to_lowercase()` : `${arg}.to_uppercase()`;
+        }
         if (!isNaN(s)) return s;
         return this.cv(s);
     }
@@ -1395,6 +1588,14 @@ STOP RUN.`
             const upper = t.toUpperCase();
             if (upper === 'ZEROS' || upper === 'ZERO' || upper === 'ZEROES') return 0;
             if (upper === 'SPACES' || upper === 'SPACE') return '';
+            // FUNCTION LOWER-CASE / UPPER-CASE
+            const funcMatch = upper.match(/^FUNCTION\s+(LOWER-CASE|UPPER-CASE)\s*\(\s*([^)]+)\s*\)/i);
+            if (funcMatch) {
+                const funcName = funcMatch[1].toUpperCase();
+                const argVal = resolve(funcMatch[2].trim());
+                if (funcName === 'LOWER-CASE') return String(argVal).toLowerCase();
+                if (funcName === 'UPPER-CASE') return String(argVal).toUpperCase();
+            }
             if (variables.hasOwnProperty(upper)) return variables[upper];
             if (!isNaN(t)) return Number(t);
             return t;
@@ -1415,21 +1616,49 @@ STOP RUN.`
         };
 
         const evalCondition = (condStr) => {
-            const eqStr = condStr.match(/([A-Z0-9\-_]+)\s*=\s*["']([^"']*)["']/i);
-            if (eqStr) return String(resolve(eqStr[1])) === eqStr[2];
-            const geM = condStr.match(/([A-Z0-9\-_]+)\s*>=\s*(["']?[^\s"']+["']?)/i);
-            if (geM) return Number(resolve(geM[1])) >= Number(resolve(geM[2]));
-            const leM = condStr.match(/([A-Z0-9\-_]+)\s*<=\s*(["']?[^\s"']+["']?)/i);
-            if (leM) return Number(resolve(leM[1])) <= Number(resolve(leM[2]));
-            const gtM = condStr.match(/([A-Z0-9\-_]+)\s*>\s*(["']?[^\s"']+["']?)/i);
-            if (gtM) return Number(resolve(gtM[1])) > Number(resolve(gtM[2]));
-            const ltM = condStr.match(/([A-Z0-9\-_]+)\s*<\s*(["']?[^\s"']+["']?)/i);
-            if (ltM) return Number(resolve(ltM[1])) < Number(resolve(ltM[2]));
-            const neM = condStr.match(/([A-Z0-9\-_]+)\s*NOT\s*=\s*(["']?[^\s"']+["']?)/i);
-            if (neM) return String(resolve(neM[1])) !== String(resolve(neM[2]));
-            const eqM = condStr.match(/([A-Z0-9\-_]+)\s*=\s*(["']?[^\s"']+["']?)/i);
-            if (eqM) return String(resolve(eqM[1])) === String(resolve(eqM[2]));
-            return false;
+            let cs = condStr.trim().toUpperCase();
+            // Handle NOT prefix
+            let negated = false;
+            if (cs.match(/^NOT\s+/i)) {
+                negated = true;
+                cs = cs.replace(/^NOT\s+/i, '').trim();
+            }
+
+            // Check if condStr is an 88-level condition name
+            const cond88 = varDefs.find(v => v.type === '88-level' && v.name === cs);
+            if (cond88 && cond88.parent) {
+                const parentVal = String(variables[cond88.parent] || '').toLowerCase();
+                let matched = false;
+                // Check individual values
+                for (const val of cond88.values) {
+                    if (parentVal === val.toLowerCase()) { matched = true; break; }
+                }
+                // Check THRU ranges
+                if (!matched) {
+                    for (const r of cond88.ranges) {
+                        const from = r.from.toLowerCase(), to = r.to.toLowerCase();
+                        if (parentVal >= from && parentVal <= to) { matched = true; break; }
+                    }
+                }
+                return negated ? !matched : matched;
+            }
+
+            // Comparison operators
+            const eqStr = cs.match(/([A-Z0-9\-_]+)\s*=\s*["']([^"']*)["']/i);
+            if (eqStr) { const r = String(resolve(eqStr[1])) === eqStr[2]; return negated ? !r : r; }
+            const geM = cs.match(/([A-Z0-9\-_]+)\s*>=\s*(["']?[^\s"']+["']?)/i);
+            if (geM) { const r = Number(resolve(geM[1])) >= Number(resolve(geM[2])); return negated ? !r : r; }
+            const leM = cs.match(/([A-Z0-9\-_]+)\s*<=\s*(["']?[^\s"']+["']?)/i);
+            if (leM) { const r = Number(resolve(leM[1])) <= Number(resolve(leM[2])); return negated ? !r : r; }
+            const gtM = cs.match(/([A-Z0-9\-_]+)\s*>\s*(["']?[^\s"']+["']?)/i);
+            if (gtM) { const r = Number(resolve(gtM[1])) > Number(resolve(gtM[2])); return negated ? !r : r; }
+            const ltM = cs.match(/([A-Z0-9\-_]+)\s*<\s*(["']?[^\s"']+["']?)/i);
+            if (ltM) { const r = Number(resolve(ltM[1])) < Number(resolve(ltM[2])); return negated ? !r : r; }
+            const neM = cs.match(/([A-Z0-9\-_]+)\s*NOT\s*=\s*(["']?[^\s"']+["']?)/i);
+            if (neM) { const r = String(resolve(neM[1])) !== String(resolve(neM[2])); return negated ? !r : r; }
+            const eqM = cs.match(/([A-Z0-9\-_]+)\s*=\s*(["']?[^\s"']+["']?)/i);
+            if (eqM) { const r = String(resolve(eqM[1])) === String(resolve(eqM[2])); return negated ? !r : r; }
+            return negated ? true : false;
         };
 
         const execute = (stmtList) => {
@@ -1553,6 +1782,14 @@ STOP RUN.`
                                 execute(paraStmts);
                                 safety++;
                             }
+                        }
+                        break;
+                    }
+                    case 'PERFORM_UNTIL_INLINE': {
+                        let safety = 0;
+                        while (!evalCondition(s.condition) && safety < 10000) {
+                            execute(s.body);
+                            safety++;
                         }
                         break;
                     }
@@ -1701,11 +1938,15 @@ STOP RUN.`
         const evalCondition = (condExpr, negate) => {
             try {
                 let evalCond = condExpr;
+                // Convert Python/Rust/Go logical operators to JS
+                evalCond = evalCond.replace(/\bnot\s+/gi, '!').replace(/\band\b/gi, '&&').replace(/\bor\b/gi, '||');
                 const sorted = Object.entries(variables).sort((a, b) => b[0].length - a[0].length);
                 for (const [vn, vv] of sorted) {
                     const re = new RegExp(`\\b${vn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
                     evalCond = evalCond.replace(re, typeof vv === 'number' ? String(vv) : `"${vv}"`);
                 }
+                // Handle Python chained comparison: "a" <= "x" <= "z" → ("a" <= "x" && "x" <= "z")
+                evalCond = evalCond.replace(/"([^"]*)"\s*<=\s*"([^"]*)"\s*<=\s*"([^"]*)"/g, '("$1" <= "$2" && "$2" <= "$3")');
                 let result = Function(`"use strict"; return (${evalCond})`)();
                 if (negate) result = !result;
                 return result;
