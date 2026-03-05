@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COBOL to Modern Language Converter</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-code"></i> COBOL Converter</h1>
+            <p>Convert COBOL code to modern programming languages</p>
+        </header>
+
+        <main class="converter-layout">
+            <div class="input-section">
+                <div class="section-header">
+                    <h2>COBOL Input</h2>
+                    <button id="loadExampleBtn" class="btn btn-secondary">
+                        <i class="fas fa-file-code"></i> Load Example
+                    </button>
+                </div>
+                <textarea id="cobolInput" placeholder="Paste your COBOL code here...
+
+Example:
+IDENTIFICATION DIVISION.
+PROGRAM-ID. HelloWorld.
+PROCEDURE DIVISION.
+DISPLAY 'Hello, World!'
+STOP RUN."></textarea>
+            </div>
+
+            <div class="controls-section">
+                <div class="language-selection">
+                    <label for="targetLang">Convert to:</label>
+                    <select id="targetLang">
+                        <option value="python">Python</option>
+                        <option value="java">Java</option>
+                        <option value="csharp">C#</option>
+                        <option value="javascript">JavaScript</option>
+                        <option value="go">Go</option>
+                        <option value="rust">Rust</option>
+                    </select>
+                </div>
+                
+                <div class="options">
+                    <label>
+                        <input type="checkbox" id="addComments" checked>
+                        Add comments
+                    </label>
+                    <label>
+                        <input type="checkbox" id="modernizeLogic" checked>
+                        Modernize logic
+                    </label>
+                </div>
+                
+                <button id="convertBtn" class="btn btn-primary">
+                    <i class="fas fa-exchange-alt"></i> Convert Code
+                </button>
+                
+                <button id="clearBtn" class="btn btn-secondary">
+                    <i class="fas fa-trash"></i> Clear
+                </button>
+            </div>
+
+            <div class="output-section">
+                <div class="section-header">
+                    <h2>Converted Code (<span id="outputLang">Python</span>)</h2>
+                    <div class="output-actions">
+                        <button id="copyBtn" class="btn btn-secondary">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                        <button id="downloadBtn" class="btn btn-secondary">
+                            <i class="fas fa-download"></i> Download
+                        </button>
+                    </div>
+                </div>
+                <pre id="output" class="output-code">Click "Convert Code" to see the result...</pre>
+            </div>
+        </main>
+
+        <div class="examples-section">
+            <h3>Quick Examples</h3>
+            <div class="examples-grid">
+                <div class="example-card" data-example="hello">
+                    <h4>Hello World</h4>
+                    <p>Basic COBOL program</p>
+                </div>
+                <div class="example-card" data-example="data">
+                    <h4>Data Variables</h4>
+                    <p>Working storage section</p>
+                </div>
+                <div class="example-card" data-example="loop">
+                    <h4>Loop Example</h4>
+                    <p>PERFORM VARYING loop</p>
+                </div>
+                <div class="example-card" data-example="calc">
+                    <h4>Calculations</h4>
+                    <p>Mathematical operations</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Code Testing & Comparison Section -->
+        <div class="testing-section">
+            <div class="section-header">
+                <h2><i class="fas fa-play-circle"></i> Built-in Code Runner</h2>
+                <p>Execute COBOL and converted code side by side — runs entirely in your browser, no internet needed</p>
+            </div>
+
+            <div class="testing-controls">
+                <button id="runCobolBtn" class="btn btn-success">
+                    <i class="fas fa-play"></i> Run COBOL
+                </button>
+                <button id="runModernBtn" class="btn btn-success">
+                    <i class="fas fa-rocket"></i> Run <span id="runModernLang">Python</span>
+                </button>
+                <button id="runBothBtn" class="btn btn-primary">
+                    <i class="fas fa-columns"></i> Run Both & Compare
+                </button>
+                <button id="clearOutputBtn" class="btn btn-secondary">
+                    <i class="fas fa-eraser"></i> Clear Output
+                </button>
+            </div>
+
+            <div class="testing-outputs">
+                <div class="test-output">
+                    <div class="test-output-header">
+                        <h3><i class="fas fa-code"></i> COBOL Output</h3>
+                        <span class="status" id="cobolStatus">Ready</span>
+                    </div>
+                    <pre class="test-result" id="cobolResult">Click "Run COBOL" to execute your COBOL code...</pre>
+                </div>
+                <div class="test-output">
+                    <div class="test-output-header">
+                        <h3><i class="fas fa-rocket"></i> <span id="modernLangName">Python</span> Output</h3>
+                        <span class="status" id="modernStatus">Ready</span>
+                    </div>
+                    <pre class="test-result" id="modernResult">Click "Run <span id="modernLangPlaceholder">Python</span>" to execute converted code...</pre>
+                </div>
+            </div>
+
+            <div id="comparisonResult" class="comparison-bar" style="display:none;">
+                <i class="fas fa-balance-scale"></i>
+                <span id="comparisonText"></span>
+            </div>
+
+            <div class="runner-info">
+                <i class="fas fa-info-circle"></i>
+                <span>
+                    <strong>100% Offline:</strong> COBOL is interpreted by a built-in engine that understands DISPLAY, COMPUTE, MOVE, ADD, SUBTRACT, MULTIPLY, DIVIDE, PERFORM, and IF/ELSE. 
+                    Converted JavaScript runs natively in your browser. Other languages are simulated from the conversion logic.
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div id="notification" class="notification">
+        <span class="notification-text"></span>
+        <button class="notification-close">&times;</button>
+    </div>
+
+    <div id="loading" class="loading-overlay">
+        <div class="loading-content">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Converting code...</p>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
