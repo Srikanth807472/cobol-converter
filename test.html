@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html><head><title>COBOL Converter Test</title><style>
+body { font-family: monospace; padding: 20px; }
+h2 { color: #333; border-bottom: 1px solid #ccc; }
+h3 { color: #666; }
+pre { background: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto; }
+.pass { color: green; font-weight: bold; }
+.fail { color: red; font-weight: bold; }
+</style></head>
+<body>
+<h1>COBOL Converter Test Suite</h1>
+<div id="results">Loading...</div>
+<script src="script.js"></script>
+<script>
+setTimeout(() => {
+    const c = converter;
+    if (!c) { document.getElementById('results').innerText = 'Converter not initialized'; return; }
+    
+    let out = '';
+    const examples = ['hello', 'data', 'loop', 'calc', 'iterif', 'evaluate', 'paragraph', 'string'];
+    
+    for (const key of examples) {
+        const code = c.examples[key];
+        if (!code) { out += '<h2>' + key + ' - NOT FOUND</h2>'; continue; }
+        
+        out += '<h2>Example: ' + key.toUpperCase() + '</h2>';
+        
+        // Convert to Python
+        c.currentLanguage = 'python';
+        let pyCode;
+        try { pyCode = c.convertToPython(code, false); } catch(e) { pyCode = 'CONVERT ERROR: ' + e.message; }
+        out += '<h3>Python Code:</h3><pre>' + pyCode + '</pre>';
+        
+        // COBOL output
+        let cobolOut;
+        try { cobolOut = c.interpretCOBOL(code); } catch(e) { cobolOut = ['COBOL ERROR: ' + e.message]; }
+        out += '<h3>COBOL Output:</h3><pre>' + cobolOut.join('\n') + '</pre>';
+        
+        // Simulator output
+        let simOut;
+        try { simOut = c.simulateModernExecution(pyCode, 'python'); } catch(e) { simOut = ['SIM ERROR: ' + e.message]; }
+        out += '<h3>Simulator Output:</h3><pre>' + simOut.join('\n') + '</pre>';
+        
+        // Compare
+        const cobolStr = cobolOut.join('\n').trim();
+        const simStr = simOut.join('\n').trim();
+        if (cobolStr === simStr) {
+            out += '<p class="pass">&#x2705; MATCH</p>';
+        } else {
+            out += '<p class="fail">&#x274C; MISMATCH</p>';
+            out += '<pre>COBOL: ' + JSON.stringify(cobolOut) + '\nSIM:   ' + JSON.stringify(simOut) + '</pre>';
+        }
+    }
+    
+    document.getElementById('results').innerHTML = out;
+}, 500);
+</script>
+<div style="display:none">
+    <textarea id="cobolInput"></textarea>
+    <select id="targetLang"><option value="python">Python</option></select>
+    <span id="outputLang"></span><span id="modernLangName"></span><span id="runModernLang"></span><span id="modernLangPlaceholder"></span>
+    <button id="convertBtn"></button><button id="clearBtn"></button><button id="copyBtn"></button><button id="downloadBtn"></button>
+    <button id="loadExampleBtn"></button><button id="runCobolBtn"></button><button id="runModernBtn"></button><button id="runBothBtn"></button><button id="clearOutputBtn"></button>
+    <pre id="output"></pre><pre id="cobolResult"></pre><pre id="modernResult"></pre>
+    <span id="cobolStatus"></span><span id="modernStatus"></span>
+    <div id="comparisonResult"><span id="comparisonText"></span></div>
+    <div id="notification"><span class="notification-text"></span><button class="notification-close"></button></div>
+    <div id="loading"></div>
+    <input type="checkbox" id="addComments" checked><input type="checkbox" id="modernizeLogic" checked>
+</div>
+</body>
+</html>

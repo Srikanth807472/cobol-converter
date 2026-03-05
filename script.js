@@ -589,8 +589,23 @@ STOP RUN.`
     //  HELPERS
     // =====================================================================
     cv(name) { return name.toLowerCase().replace(/^ws-/, '').replace(/-/g, '_').replace(/["']/g, ''); }
-    convertExpr(expr) {
-        return expr.replace(/[A-Z][A-Z0-9\-_]*/gi, m => isNaN(m) ? this.cv(m) : m);
+    /** Invert a COBOL UNTIL operator to a while-loop operator */
+    _invertOp(op) { return { '>': '<=', '>=': '<', '<': '>=', '<=': '>', '=': '!=' }[op] || '<='; }
+    /** Check if any statements use STRING/UNSTRING/INSPECT_REPLACING */
+    _usesStringOps(stmts, paragraphs) {
+        const check = (list) => list.some(s => s.type === 'STRING_OP' || s.type === 'UNSTRING_OP' || s.type === 'INSPECT_REPLACING' || (s.body && check(s.body)) || (s.ifBody && check(s.ifBody)) || (s.elseBody && check(s.elseBody)));
+        if (check(stmts)) return true;
+        for (const body of Object.values(paragraphs || {})) { if (check(body)) return true; }
+        return false;
+    }
+    convertExpr(expr, lang) {
+        let e = expr.replace(/[A-Z][A-Z0-9\-_]*/gi, m => isNaN(m) ? this.cv(m) : m);
+        // Use integer division for languages that need it
+        if (lang === 'python') e = e.replace(/\//g, '//');
+        else if (lang === 'javascript') {
+            if (e.includes('/')) e = `Math.floor(${e})`;
+        }
+        return e;
     }
     _splitList(s) { return s.split(/[,\s]+/).filter(x => x); }
     _mapSources(s) { return this._splitList(s).map(x => isNaN(x) ? this.cv(x) : x); }
@@ -647,8 +662,9 @@ STOP RUN.`
     // =====================================================================
     //  GENERIC ARITHMETIC BLOCK GENERATOR
     // =====================================================================
-    _genArith(s, ind, semi) {
+    _genArith(s, ind, semi, lang) {
         const sc = semi ? ';' : '';
+        lang = lang || 'python';
         let r = '';
         switch (s.type) {
             case 'ADD': {
@@ -683,13 +699,27 @@ STOP RUN.`
             }
             case 'DIVIDE_GIVING': {
                 const a = isNaN(s.dividend) ? this.cv(s.dividend) : s.dividend, b = isNaN(s.divisor) ? this.cv(s.divisor) : s.divisor;
-                r += `${ind}${this.cv(s.target)} = ${a} / ${b}${sc}\n`;
-                if (s.remainder) r += `${ind}${this.cv(s.remainder)} = ${a} % ${b}${sc}\n`;
+                if (lang === 'python') {
+                    r += `${ind}${this.cv(s.target)} = ${a} // ${b}${sc}\n`;
+                    if (s.remainder) r += `${ind}${this.cv(s.remainder)} = ${a} % ${b}${sc}\n`;
+                } else if (lang === 'javascript') {
+                    r += `${ind}${this.cv(s.target)} = Math.floor(${a} / ${b})${sc}\n`;
+                    if (s.remainder) r += `${ind}${this.cv(s.remainder)} = ${a} % ${b}${sc}\n`;
+                } else {
+                    r += `${ind}${this.cv(s.target)} = ${a} / ${b}${sc}\n`;
+                    if (s.remainder) r += `${ind}${this.cv(s.remainder)} = ${a} % ${b}${sc}\n`;
+                }
                 break;
             }
             case 'DIVIDE_INTO': {
                 const d = isNaN(s.divisor) ? this.cv(s.divisor) : s.divisor; const tn = this.cv(s.target);
-                r += `${ind}${tn} = ${tn} / ${d}${sc}\n`;
+                if (lang === 'python') {
+                    r += `${ind}${tn} = ${tn} // ${d}${sc}\n`;
+                } else if (lang === 'javascript') {
+                    r += `${ind}${tn} = Math.floor(${tn} / ${d})${sc}\n`;
+                } else {
+                    r += `${ind}${tn} = ${tn} / ${d}${sc}\n`;
+                }
                 break;
             }
         }
@@ -756,15 +786,16 @@ STOP RUN.`
                     break;
                 }
                 case 'MOVE': r += `${ind}${this.cv(s.target)} = ${this._pyVal(s.source)}\n`; break;
-                case 'COMPUTE': r += `${ind}${this.cv(s.variable)} = ${this.convertExpr(s.expression)}\n`; break;
+                case 'COMPUTE': r += `${ind}${this.cv(s.variable)} = ${this.convertExpr(s.expression, 'python')}\n`; break;
                 case 'ADD': case 'ADD_GIVING': case 'SUBTRACT': case 'SUBTRACT_GIVING':
                 case 'MULTIPLY': case 'MULTIPLY_GIVING': case 'DIVIDE_GIVING': case 'DIVIDE_INTO':
-                    r += this._genArith(s, ind, false);
+                    r += this._genArith(s, ind, false, 'python');
                     break;
                 case 'PERFORM_VARYING': {
                     const c = this.cv(s.counter);
+                    const whileOp = this._invertOp(s.limitOp);
                     r += `${ind}${c} = ${isNaN(s.from) ? this.cv(s.from) : s.from}\n`;
-                    r += `${ind}while ${c} <= ${isNaN(s.limitVal) ? this.cv(s.limitVal) : s.limitVal}:\n`;
+                    r += `${ind}while ${c} ${whileOp} ${isNaN(s.limitVal) ? this.cv(s.limitVal) : s.limitVal}:\n`;
                     r += this._pyBlock(s.body, ind + '    ', false);
                     r += `${ind}    ${c} += ${isNaN(s.by) ? this.cv(s.by) : s.by}\n`;
                     break;
@@ -996,9 +1027,14 @@ STOP RUN.`
         const stmts = this.parseStatements(code);
         this._knownVars = new Set(vars.map(v => v.name.toUpperCase()));
         const paragraphs = stmts._paragraphs || {};
+        const needsStrings = this._usesStringOps(stmts, paragraphs);
         let r = '';
         if (cmt) r += '// Converted from COBOL to Go\n// Generated by COBOL Converter\n\n';
-        r += 'package main\n\nimport "fmt"\n\n';
+        if (needsStrings) {
+            r += 'package main\n\nimport (\n    "fmt"\n    "strings"\n)\n\n';
+        } else {
+            r += 'package main\n\nimport "fmt"\n\n';
+        }
 
         if (Object.keys(paragraphs).length > 0) {
             r += 'var (\n';
@@ -1103,29 +1139,30 @@ STOP RUN.`
                     r += `${ind}${this.cv(s.target)} = ${lang === 'rust' ? this._rustVal(s.source) : this._cVal(s.source)}${sc}\n`;
                     break;
                 case 'COMPUTE':
-                    r += `${ind}${this.cv(s.variable)} = ${this.convertExpr(s.expression)}${sc}\n`;
+                    r += `${ind}${this.cv(s.variable)} = ${this.convertExpr(s.expression, lang)}${sc}\n`;
                     break;
                 case 'ADD': case 'ADD_GIVING': case 'SUBTRACT': case 'SUBTRACT_GIVING':
                 case 'MULTIPLY': case 'MULTIPLY_GIVING': case 'DIVIDE_GIVING': case 'DIVIDE_INTO':
-                    r += this._genArith(s, ind, semi);
+                    r += this._genArith(s, ind, semi, lang);
                     break;
                 case 'PERFORM_VARYING': {
                     const c = this.cv(s.counter);
                     const from = isNaN(s.from) ? this.cv(s.from) : s.from;
                     const lim = isNaN(s.limitVal) ? this.cv(s.limitVal) : s.limitVal;
                     const by = isNaN(s.by) ? this.cv(s.by) : s.by;
+                    const whileOp = this._invertOp(s.limitOp);
                     if (lang === 'rust') {
                         r += `${ind}${c} = ${from};\n`;
-                        r += `${ind}while ${c} <= ${lim} {\n`;
+                        r += `${ind}while ${c} ${whileOp} ${lim} {\n`;
                         r += this._cBlock(s.body, ind + '    ', lang);
                         r += `${ind}    ${c} += ${by};\n`;
                         r += `${ind}}\n`;
                     } else if (lang === 'go') {
-                        r += `${ind}for ${c} = ${from}; ${c} <= ${lim}; ${c} += ${by} {\n`;
+                        r += `${ind}for ${c} = ${from}; ${c} ${whileOp} ${lim}; ${c} += ${by} {\n`;
                         r += this._cBlock(s.body, ind + '    ', lang);
                         r += `${ind}}\n`;
                     } else {
-                        r += `${ind}for (${c} = ${from}; ${c} <= ${lim}; ${c} += ${by}) {\n`;
+                        r += `${ind}for (${c} = ${from}; ${c} ${whileOp} ${lim}; ${c} += ${by}) {\n`;
                         r += this._cBlock(s.body, ind + '    ', lang);
                         r += `${ind}}\n`;
                     }
@@ -1468,8 +1505,10 @@ STOP RUN.`
                         variables[counter] = Number(resolve(s.from)) || 0;
                         const by = Number(resolve(s.by)) || 1;
                         const limit = Number(resolve(s.limitVal)) || 0;
+                        const cmpFns = { '>': () => variables[counter] <= limit, '>=': () => variables[counter] < limit, '<': () => variables[counter] >= limit, '<=': () => variables[counter] > limit, '=': () => variables[counter] !== limit };
+                        const cmpFn = cmpFns[s.limitOp] || (() => variables[counter] <= limit);
                         let safety = 0;
-                        while (variables[counter] <= limit && safety < 10000) {
+                        while (cmpFn() && safety < 10000) {
                             execute(s.body);
                             variables[counter] = Number(variables[counter]) + by;
                             safety++;
@@ -1609,14 +1648,24 @@ STOP RUN.`
 
         const safeEval = (expr) => {
             let e = String(expr).trim().replace(/;$/, '');
-            e = e.replace(/^(?:int|Integer\.parseInt|parseInt|Math\.floor)\s*\((.+)\)$/, '$1');
+            // Unwrap type casts but keep Math.floor for integer division
+            e = e.replace(/^(?:int|Integer\.parseInt|parseInt)\s*\((.+)\)$/, 'Math.floor($1)');
             e = e.replace(/\bas\s+i64\b/g, '');
+            // Convert Python // to Math.floor(/)
+            e = e.replace(/\/\//g, '/');
             const sorted = Object.entries(variables).sort((a, b) => b[0].length - a[0].length);
             for (const [vn, vv] of sorted) {
                 const re = new RegExp(`\\b${vn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
                 e = e.replace(re, typeof vv === 'number' ? String(vv) : `"${vv}"`);
             }
-            try { return Function(`"use strict"; return (${e})`)(); }
+            try {
+                let result = Function(`"use strict"; return (${e})`)();
+                // Integer division: floor all numeric results from division
+                if (typeof result === 'number' && !Number.isInteger(result) && e.includes('/')) {
+                    result = Math.floor(result);
+                }
+                return result;
+            }
             catch { return null; }
         };
 
@@ -1980,12 +2029,22 @@ STOP RUN.`
                         i++; continue;
                     }
 
-                    // Ternary for array access (UNSTRING results)
+                    // Ternary for array access (UNSTRING results) - C-style
                     const ternaryArr = value.match(/(\w+)\.(?:length|Length|len\(\))\s*>\s*(\d+)\s*\?\s*(\w+)\[(\d+)\]\s*:\s*""/);
                     if (ternaryArr) {
                         const arr = variables[ternaryArr[1]] || variables[ternaryArr[3]];
                         if (Array.isArray(arr)) {
                             const idx = Number(ternaryArr[4]);
+                            variables[varName] = idx < arr.length ? String(arr[idx]).trim() : '';
+                        } else { variables[varName] = ''; }
+                        i++; continue;
+                    }
+                    // Python ternary for array access: _parts[N] if len(_parts) > N else ""
+                    const pyTernaryArr = value.match(/(\w+)\[(\d+)\]\s+if\s+len\((\w+)\)\s*>\s*(\d+)\s+else\s+""/);
+                    if (pyTernaryArr) {
+                        const arr = variables[pyTernaryArr[1]] || variables[pyTernaryArr[3]];
+                        if (Array.isArray(arr)) {
+                            const idx = Number(pyTernaryArr[2]);
                             variables[varName] = idx < arr.length ? String(arr[idx]).trim() : '';
                         } else { variables[varName] = ''; }
                         i++; continue;
@@ -2044,6 +2103,17 @@ STOP RUN.`
                     value = value.replace(/\.strip\(\)/g, '');
                     value = value.replace(/^Math\.floor\((.+)\)$/, '$1');
                     value = value.replace(/^(?:int|Integer\.parseInt|parseInt)\s*\((.+)\)$/, '$1');
+                    // Python str(var).strip() → resolve var value as string
+                    value = value.replace(/str\((\w+)\)\.strip\(\)/g, (m, vn) => {
+                        return variables.hasOwnProperty(vn) ? '"' + String(variables[vn]).trim() + '"' : '""';
+                    });
+                    value = value.replace(/str\((\w+)\)/g, (m, vn) => {
+                        return variables.hasOwnProperty(vn) ? '"' + String(variables[vn]) + '"' : '""';
+                    });
+                    // Python var.strip() → resolve var value trimmed
+                    value = value.replace(/(\w+)\.strip\(\)/g, (m, vn) => {
+                        return variables.hasOwnProperty(vn) ? '"' + String(variables[vn]).trim() + '"' : vn;
+                    });
 
                     const result = safeEval(value);
                     if (result !== null) variables[varName] = result;
